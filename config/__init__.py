@@ -6,7 +6,11 @@ import logging.config
 import os
 import shutil
 import sys
-from collections import Mapping
+
+if sys.version_info[:2] >= (3, 8):
+    from collections.abc import Mapping
+else:
+    from collections import Mapping
 
 import ruamel.yaml
 
@@ -34,8 +38,15 @@ if use_state_separation is None:
     use_state_separation = False
 
 if use_state_separation:
-    # TODO: use platform application state directory, copy skeleton
-    writable_root = '\0placeholder'
+    system = sys.platform
+    if system == "win32":
+        # TODO: windows user data dir
+        platform_appdata_path = os.getenv('LOCALAPPDATA')
+    elif system == 'darwin':
+        platform_appdata_path = os.path.expanduser('~/Library/Preferences')
+    else:
+        platform_appdata_path = os.getenv('XDG_CONFIG_HOME', os.path.expanduser("~/.config"))
+    writable_root = os.path.join(platform_appdata_path, 'ArknightsAutoHelper')
 else:
     writable_root = root
 
@@ -43,10 +54,12 @@ background = False
 ADB_ROOT = os.path.join(root, 'ADB', sys.platform)
 SCREEN_SHOOT_SAVE_PATH = os.path.join(writable_root, 'screenshot')
 CONFIG_PATH = os.path.join(writable_root, 'config')
+cache_path = os.path.join(writable_root, 'cache')
 extra_items_path = os.path.join(writable_root, 'extra_items')
 config_file = os.path.join(CONFIG_PATH, 'config.yaml')
 config_template = os.path.join(config_template_path, 'config-template.yaml')
 logging_config_file = os.path.join(CONFIG_PATH, 'logging.yaml')
+logging_config_template = os.path.join(config_template_path, 'logging.yaml')
 logs = os.path.join(writable_root, 'log')
 use_archived_resources = not os.path.isdir(os.path.join(root, 'resources'))
 if use_archived_resources:
@@ -57,8 +70,11 @@ else:
     resource_archive = None
     resource_root = os.path.join(root, 'resources')
 
-if not os.path.exists(logs):
-    os.mkdir(logs)
+os.makedirs(SCREEN_SHOOT_SAVE_PATH, exist_ok=True)
+os.makedirs(CONFIG_PATH, exist_ok=True)
+os.makedirs(cache_path, exist_ok=True)
+os.makedirs(extra_items_path, exist_ok=True)
+os.makedirs(logs, exist_ok=True)
 
 dirty = False
 
@@ -226,7 +242,31 @@ def get_instance_id():
     else:
         logfile = os.path.join(logs, 'ArknightsAutoHelper.%d.log' % _instanceid)
 
+
+    return _instanceid
+
+logging_enabled = False
+
+def enable_logging():
+    global logging_enabled
+    if logging_enabled:
+        return
+    get_instance_id()
+    old_handlers = logging.root.handlers[:]
+    if not os.path.exists(logging_config_file):
+        shutil.copy2(logging_config_template, logging_config_file)
     with open(logging_config_file, 'r', encoding='utf-8') as f:
         logging.config.dictConfig(yaml.load(f))
+    for h in old_handlers:
+        logging.root.addHandler(h)
     logging.debug('ArknightsAutoHelper version %s', version)
-    return _instanceid
+    import coloredlogs
+    coloredlogs.install(
+        fmt=' Ξ %(message)s',
+        #fmt=' %(asctime)s ! %(funcName)s @ %(filename)s:%(lineno)d ! %(levelname)s # %(message)s',
+        datefmt='%H:%M:%S',
+        level_styles={'warning': {'color': 'yellow'}, 'error': {'color': 'red'}},
+        level='INFO')
+    logging_enabled = True
+    if os.path.getmtime(config_file) < os.path.getmtime(config_template):
+        logging.warning('配置文件模板 config-template.yaml 已更新，请检查配置文件 config.yaml 是否需要更新')

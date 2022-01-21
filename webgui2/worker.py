@@ -6,7 +6,8 @@ import queue as threading_Queue
 
 import Arknights.helper
 import config
-from connector.ADBConnector import ADBConnector, ensure_adb_alive
+from automator import connector
+from automator.connector.ADBConnector import ADBConnector, ensure_adb_alive
 from util.excutil import format_exception
 from typing import Mapping
 
@@ -15,6 +16,35 @@ logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
 logger.addHandler(logging.StreamHandler())
 logger.propagate = False
+
+class PendingHandler(logging.Handler):
+    terminator = '\n'
+
+    def __init__(self):
+        super().__init__()
+        self.records = []
+        self.output = None
+
+    def attach(self, output: logging.Handler):
+        self.output = output
+        for record in self.records:
+            self.output.emit(record)
+        self.records.clear()
+
+    def flush(self):
+        if self.output is not None:
+            self.output.flush()
+
+    def emit(self, record: logging.LogRecord):
+        if self.output is None:
+            self.records.append(record)
+        else:
+            self.output.emit(record)
+
+loghandler = PendingHandler()
+loghandler.setLevel(logging.INFO)
+logging.root.addHandler(loghandler)
+config.enable_logging()
 
 class WebHandler(logging.Handler):
     terminator = '\n'
@@ -49,30 +79,30 @@ class WorkerThread(threading.Thread):
         self.helper = None
         self.allowed_calls = {
             "web:connect": self.web_connect,
-            "worker:set_enable_refill": lambda x: setattr(self.helper, 'use_refill', bool(x)),
-            "worker:set_refill_with_item": lambda x: setattr(self.helper, 'refill_with_item', bool(x)),
-            "worker:set_refill_with_originium": lambda x: setattr(self.helper, 'refill_with_originium', bool(x)),
+            "worker:set_refill_with_item": lambda x: self.helper.addon('CombatAddon').configure_refill(with_item=bool(x)) and None,
+            "worker:set_refill_with_originium": lambda x: self.helper.addon('CombatAddon').configure_refill(with_originium=bool(x)) and None,
             "worker:set_max_refill_count": self.set_max_refill_count,
-            "worker:module_battle": self.ensure_connector_decorator(lambda stage, count: self.helper.module_battle(stage, int(count))),
-            "worker:module_battle_slim": self.ensure_connector_decorator(lambda count: self.helper.module_battle_slim(set_count=int(count))),
-            "worker:clear_task": self.ensure_connector_decorator(lambda: self.helper.clear_task()),
-            "worker:recruit": self.ensure_connector_decorator(lambda: self.helper.recruit()),
+            "worker:module_battle": lambda stage, count: self.helper.addon('StageNavigator').navigate_and_combat(stage, int(count)) and None,
+            "worker:module_battle_slim": lambda count: self.helper.addon('CombatAddon').combat_on_current_stage(int(count)) and None,
+            "worker:clear_task": lambda: self.helper.addon('QuestAddon').clear_task() and None,
+            "worker:recruit": lambda: self.helper.addon('RecruitAddon').recruit(),
         }
+
+    def notify_availiable_devices(self):
+        devices = connector.enum_devices()
+        self.devices = devices
+        self.notify("web:availiable-devices", [x[0] for x in devices])
 
     # threading.Thread
     def run(self):
         print("starting worker thread")
-        loghandler = WebHandler(self.output)
-        loghandler.setLevel(logging.INFO)
-        logging.root.addHandler(loghandler)
+        realhandler = WebHandler(self.output)
+        loghandler.attach(realhandler)
         version = config.version
         if config.get_instance_id() != 0:
             version += f" (instance {config.get_instance_id()})"
         self.notify("web:version", version)
-        ensure_adb_alive()
-        devices = ADBConnector.available_devices()
-        devices = ["adb:"+x[0] for x in devices]
-        self.notify("web:availiable-devices", devices)
+        self.notify_availiable_devices()
         self.helper = Arknights.helper.ArknightsHelper(frontend=self)
         while True:
             self.notify("worker:idle")
@@ -108,6 +138,13 @@ class WorkerThread(threading.Thread):
         """program-targeted message"""
         logger.info("sending notify %s %r", name, value)
         self.output.put(dict(type="notify", name=name, value=value))
+    def request_device_connector(self):
+        try:
+            return connector.auto_connect()
+        except:
+            self.notify_availiable_devices()
+            self.notify('web:show-devices')
+            raise RuntimeError('请选择设备后重试')
     def delay(self, secs, allow_skip):
         self.notify("wait", dict(duration=secs, allow_skip=allow_skip))
         try:
@@ -128,28 +165,20 @@ class WorkerThread(threading.Thread):
     def web_connect(self, dev:str):
         print(dev.split(':', 1))
         connector_type, cookie = dev.split(':', 1)
-        if connector_type != 'adb':
+        if connector_type == 'list':
+            name, cls, args, binding = self.devices[int(cookie)]
+            new_connector = cls(*args)
+        elif connector_type == 'adb':
+            new_connector = ADBConnector(cookie)
+        else:
             raise KeyError("unknown connector type " + connector_type)
-        new_connector = ADBConnector(cookie)
         connector_str = str(new_connector)
         self.helper.connect_device(new_connector)
-        self.notify("web:current-device", connector_str)
     
-    def ensure_connector(self):
-        if self.helper.adb is None:
-            new_connector = ADBConnector.auto_connect()
-            self.helper.connect_device(new_connector)
-            self.notify("web:current-device", str(new_connector))
 
-    def ensure_connector_decorator(self, func):
-        def decorated(*args, **kwargs):
-            self.ensure_connector()
-            return func(*args, **kwargs)
-        return decorated
-    
     def set_max_refill_count(self, count):
-        self.helper.refill_count = 0
-        self.helper.max_refill_count = count
+        self.helper.addon('CombatAddon').refill_count = 0
+        self.helper.addon('CombatAddon').max_refill_count = count
 
 
 

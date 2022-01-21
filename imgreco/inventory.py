@@ -1,7 +1,7 @@
 import numpy as np
 import cv2
-from . import item, imgops, util
-from PIL import Image
+from . import item, imgops, common
+from util import cvimage as Image
 from util.richlog import get_logger
 
 logger = get_logger(__name__)
@@ -103,16 +103,18 @@ def crop_num_img(item_img):
 
 
 def get_quantity2(item_img):
-    from .ocr.cnocr import cn_ocr
+    from . import ocr
+    engine = ocr.acquire_engine_global_cached('zh-cn')
     num_img = crop_num_img(item_img)
     num_img = cv2.cvtColor(num_img, cv2.COLOR_RGB2GRAY)
     num_img[num_img < 173] = 0
     remove_holes(num_img)
     num_img = cv2.cvtColor(num_img, cv2.COLOR_GRAY2RGB)
     logger.logimage(convert_to_pil(num_img))
-    cn_ocr.set_cand_alphabet('0123456789万')
-    res = ''.join(cn_ocr.ocr_for_single_line(num_img)).strip()
-    cn_ocr.set_cand_alphabet(None)
+    # cn_ocr.set_cand_alphabet('0123456789万')
+    res = engine.recognize(convert_to_pil(num_img), hints=[ocr.OcrHint.SINGLE_LINE], char_whitelist='0123456789万').text.replace(' ', '')
+    # res = ''.join(cn_ocr.ocr_for_single_line(num_img)).strip()
+    # cn_ocr.set_cand_alphabet(None)
     logger.logtext(f'get_quantity2: {res}')
     factor = 1
     num = None
@@ -198,5 +200,5 @@ def get_all_item_details_in_screen(screen, exclude_item_ids=None, exclude_item_t
 
 
 def get_inventory_rect(viewport):
-    vw, vh = util.get_vwvh(viewport)
+    vw, vh = common.get_vwvh(viewport)
     return 100 * vw - 17.361 * vh, 81.944 * vh, 100 * vw - 6.111 * vh, 96.806 * vh

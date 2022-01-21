@@ -1,4 +1,6 @@
-from PIL import ImageOps
+import cv2
+import numpy as np
+from util import cvimage as Image
 
 from rotypes import HSTRING
 from rotypes.Windows.Globalization import Language
@@ -40,14 +42,14 @@ def _swbmp_from_pil_image(img):
 
 def check_supported():
     try:
-        return WinRTOcrEngine.IsLanguageSupported(Language.CreateLanguage(HSTRING('zh-cn')))
+        return WinRTOcrEngine.IsLanguageSupported(Language.CreateLanguage('zh-cn'))
     except Exception:
         return False
 
 class WindowsOcrEngine(OcrEngine):
     def __init__(self, lang, **kwargs):
         super().__init__(lang, **kwargs)
-        lang = Language.CreateLanguage(HSTRING(lang))
+        lang = Language.CreateLanguage(lang)
         if not WinRTOcrEngine.IsLanguageSupported(lang):
             raise ValueError('unsupported language')
         self.winengine = WinRTOcrEngine.TryCreateFromLanguage(lang)
@@ -56,8 +58,8 @@ class WindowsOcrEngine(OcrEngine):
         if hints == None:
             hints = []
         if OcrHint.SINGLE_LINE in hints:
-            img = ImageOps.expand(img, 32, fill=img.getpixel((0, 0)))
-
+            img2 = cv2.copyMakeBorder(np.asarray(img), 32, 32, 32, 32, cv2.BORDER_REPLICATE)
+            img = Image.fromarray(img2, img.mode)
         swbmp = _swbmp_from_pil_image(img)
         return _dump_ocrresult(self.winengine.RecognizeAsync(swbmp).wait())
 

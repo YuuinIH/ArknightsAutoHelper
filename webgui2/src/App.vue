@@ -10,9 +10,9 @@
                 <b-icon icon="plug-fill" />设备
               </b-input-group-prepend>
               <b-input-group-append class="flex-grow-1">
-                <b-dropdown :text="deviceName" right class="flex-grow-1">
+                <b-dropdown ref="device_dropdown" :text="deviceName" right class="flex-grow-1">
                   <b-dropdown-item disabled><b>可用设备</b></b-dropdown-item>
-                  <b-dropdown-item v-for="dev in availiableDevices" v-bind:key="dev" @click="connectDevice(dev)">{{dev}}</b-dropdown-item>
+                  <b-dropdown-item v-for="(name, index) in availiableDevices" v-bind:key="index" @click="connectDevice('list:'+index)">{{name}}</b-dropdown-item>
                   <b-dropdown-divider/>
                   <b-dropdown-item v-b-modal.connect-device>连接设备</b-dropdown-item>
                 </b-dropdown>
@@ -352,13 +352,10 @@ export default class App extends Vue {
     if (this.refillWithItem) title += " 使用道具"
     if (this.refillWithOriginium) title += " 使用源石"
     result.text = title
+    result.action.push({name: "worker:set_refill_with_item", args: [this.refillWithItem]})
+    result.action.push({name: "worker:set_refill_with_originium", args: [this.refillWithOriginium]})
     if (this.refillWithItem || this.refillWithOriginium) {
-      result.action.push({name: "worker:set_enable_refill", args: [true]})
-      result.action.push({name: "worker:set_refill_with_item", args: [this.refillWithItem]})
-      result.action.push({name: "worker:set_refill_with_originium", args: [this.refillWithOriginium]})
       result.action.push({name: "worker:set_max_refill_count", args: [parseInt(this.maxRefillCount)]})
-    } else {
-      result.action.push({name: "worker:set_enable_refill", args: [false]})
     }
     if (this.onStage === 'current') {
       result.action.push({name: "worker:module_battle_slim", args: [count]})
@@ -453,8 +450,14 @@ export default class App extends Vue {
     return this.connectDevice("adb:" + this.deviceToConnect)
   }
 
-  connectDevice(dev) {
-    return this.callRemote("web:connect", [dev])
+  async connectDevice(dev) {
+    this.appRunning = true
+    this.workerWaiting = false
+    try {
+      return await this.callRemote("web:connect", [dev])
+    } finally {
+      this.appRunning = false
+    }
   }
 
   setAppIdle() {
@@ -530,7 +533,7 @@ export default class App extends Vue {
   onNotify(name, value) {
     console.log("update value", name, "=", value)
     switch (name) {
-      case "web:current-device":
+      case "current-device":
         this.deviceName = value.toString()
         break
       case "web:availiable-devices":
@@ -538,6 +541,9 @@ export default class App extends Vue {
         break
       case 'web:version':
         this.version = value.toString()
+        break
+      case 'web:show-devices':
+        this.$refs.device_dropdown.show();
         break
       case 'wait':
         this.onWait(value.duration, value.allow_skip)

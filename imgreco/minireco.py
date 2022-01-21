@@ -1,5 +1,5 @@
 import numpy as np
-from PIL import Image
+from util import cvimage as Image
 
 from . import imgops
 
@@ -131,4 +131,6 @@ def fix_stage_name(s):
         return True, 'O' + s[2:]
     elif s.startswith('R--'):
         return True, 'RI-' + s[3:]
+    elif s.startswith('B--'):
+        return True, 'BI-' + s[3:]
     return False, s
