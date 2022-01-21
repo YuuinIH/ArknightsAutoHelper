@@ -1,4 +1,5 @@
 version: 1
+disable_existing_loggers: false
 handlers:
   console:
     class: logging.StreamHandler
@@ -21,6 +22,8 @@ root:
 loggers:
   PIL.PngImagePlugin:
     propagate: false
+  cnocr.cn_ocr:
+    level: WARNING
 formatters:
   precise:
     format: '%(asctime)s ! %(funcName)s @ %(filename)s:%(lineno)d ! %(levelname)s ! %(message)s'

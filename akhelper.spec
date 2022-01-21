@@ -23,7 +23,7 @@ a = Analysis(['akhelper.py'],
                 ('webgui2/dist', 'web'),
                 ('extra_items/README.txt', 'extra_items'),
             ],
-             hiddenimports=['imgreco.ocr.baidu', 'imgreco.ocr.tesseract', 'imgreco.ocr.windows_media_ocr', 'connector.fixups.adb_connect', 'connector.fixups.probe_bluestacks_hyperv'],
+             hiddenimports=['imgreco.ocr.baidu', 'imgreco.ocr.tesseract', 'imgreco.ocr.windows_media_ocr', 'automator.connector.enumerator.bluestacks_hyperv', 'automator.connector.enumerator.append'],
              hookspath=[],
              runtime_hooks=[],
              excludes=['FixTk', 'tcl', 'tk', '_tkinter', 'tkinter', 'Tkinter', 'resources', 'packaging'],
@@ -34,7 +34,7 @@ a = Analysis(['akhelper.py'],
 
 agui = Analysis(['akhelper-gui.pyw'],
              binaries=[],
-             hiddenimports=['imgreco.ocr.baidu', 'imgreco.ocr.tesseract', 'imgreco.ocr.windows_media_ocr', 'connector.fixups.adb_connect', 'connector.fixups.probe_bluestacks_hyperv'],
+             hiddenimports=['imgreco.ocr.baidu', 'imgreco.ocr.tesseract', 'imgreco.ocr.windows_media_ocr', 'automator.connector.enumerator.bluestacks_hyperv', 'automator.connector.enumerator.append'],
              hookspath=[],
              runtime_hooks=[],
              excludes=['FixTk', 'tcl', 'tk', '_tkinter', 'tkinter', 'Tkinter', 'resources', 'packaging'],
@@ -69,8 +69,8 @@ def is_crt_binary(name):
             return True
     return False
 
-a.binaries[:] = (x for x in a.binaries if not is_crt_binary(x[0]))
-agui.binaries[:] = (x for x in agui.binaries if not is_crt_binary(x[0]))
+a.binaries[:] = (x for x in a.binaries if not is_crt_binary(x[0]) and 'opencv_videoio' not in x[0])
+agui.binaries[:] = (x for x in agui.binaries if not is_crt_binary(x[0]) and 'opencv_videoio' not in x[0])
 
 coll = COLLECT(exe, a.binaries, a.zipfiles, a.datas, exegui, agui.binaries, agui.zipfiles, agui.datas, strip=False, upx=False, upx_exclude=[], name='akhelper')
 

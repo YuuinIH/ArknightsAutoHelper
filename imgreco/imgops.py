@@ -1,10 +1,13 @@
-from functools import reduce
+from __future__ import annotations
+from typing import TYPE_CHECKING
+if TYPE_CHECKING:
+    from typing import Union
+
+from dataclasses import dataclass
 
 import cv2 as cv
 import numpy as np
-from PIL import Image
-
-
+from util import cvimage as Image
 
 
 def enhance_contrast(img, lower=90, upper=None):
@@ -166,13 +169,69 @@ def match_template(img, template, method=cv.TM_CCOEFF_NORMED):
     return (x + templatemat.shape[1] / 2, y + templatemat.shape[0] / 2), mtresult[maxidx]
 
 
-def find_homography(templ, haystack, *, min_match=10):
+@dataclass
+class FeatureMatchingResult:
+    template_keypooint_count: int
+    matched_keypoint_count: int
+    template_corners: Union[list[tuple[int, int]], np.ndarray, None] = None
+    M: np.ndarray = None
+
+
+def match_feature_orb(templ, haystack, *, min_match=10, templ_mask=None, haystack_mask=None, limited_transform=False) -> FeatureMatchingResult:
+    templ = np.asarray(templ.convert('L'))
+    haystack = np.asarray(haystack.convert('L'))
+
+    detector = cv.ORB_create(10000)
+    descriptor = cv.xfeatures2d.BEBLID_create(0.75)
+    # descriptor = detector
+    kp1 = detector.detect(templ, templ_mask)
+    kp2 = detector.detect(haystack, haystack_mask)
+    kp1, des1 = descriptor.compute(templ, kp1)
+    kp2, des2 = descriptor.compute(haystack, kp2)
+
+    index_params = dict(algorithm=6,
+                        table_number=6,
+                        key_size=12,
+                        multi_probe_level=1)
+    search_params = {}
+    matcher = cv.FlannBasedMatcher(index_params, search_params)
+    # matcher = cv.BFMatcher_create(cv.NORM_HAMMING)
+    matches = matcher.knnMatch(des1, des2, k=2)
+    good = []
+    for group in matches:
+        if len(group) >= 2 and group[0].distance < 0.75 * group[1].distance:
+            good.append(group[0])
+
+    result = FeatureMatchingResult(len(kp1), len(good))
+
+    if len(good) >= min_match:
+        src_pts = np.float32([kp1[m.queryIdx].pt for m in good]).reshape(-1, 1, 2)
+        dst_pts = np.float32([kp2[m.trainIdx].pt for m in good]).reshape(-1, 1, 2)
+
+        if limited_transform:
+            M, _ = cv.estimateAffinePartial2D(src_pts, dst_pts)
+        else:
+            M, mask = cv.findHomography(src_pts, dst_pts, cv.RANSAC, 4.0)
+
+        h, w = templ.shape
+        pts = np.float32([[0, 0], [0, h - 1], [w - 1, h - 1], [w - 1, 0]]).reshape(-1, 1, 2)
+        if limited_transform:
+            dst = cv.transform(pts, M)
+        else:
+            dst = cv.perspectiveTransform(pts, M)
+        result.M = M
+        result.template_corners = dst.reshape(-1, 2)
+        # img2 = cv.polylines(haystack, [np.int32(dst)], True, 0, 2, cv.LINE_AA)
+    return result
+
+
+def match_feature(templ, haystack, *, min_match=10, templ_mask=None, haystack_mask=None, limited_transform=False) -> FeatureMatchingResult:
     templ = np.asarray(templ.convert('L'))
     haystack = np.asarray(haystack.convert('L'))
 
     detector = cv.SIFT_create()
-    kp1, des1 = detector.detectAndCompute(templ, None)
-    kp2, des2 = detector.detectAndCompute(haystack, None)
+    kp1, des1 = detector.detectAndCompute(templ, templ_mask)
+    kp2, des2 = detector.detectAndCompute(haystack, haystack_mask)
 
     # index_params = dict(algorithm=6,
     #                     table_number=6,
@@ -187,26 +246,32 @@ def find_homography(templ, haystack, *, min_match=10):
         if len(group) >= 2 and group[0].distance < 0.75 * group[1].distance:
             good.append(group[0])
 
+    result = FeatureMatchingResult(len(kp1), len(good))
+
     if len(good) >= min_match:
         src_pts = np.float32([kp1[m.queryIdx].pt for m in good]).reshape(-1, 1, 2)
         dst_pts = np.float32([kp2[m.trainIdx].pt for m in good]).reshape(-1, 1, 2)
 
-        M, mask = cv.findHomography(src_pts, dst_pts, cv.RANSAC, 5.0)
-        matchesMask = mask.ravel().tolist()
+        if limited_transform:
+            M, _ = cv.estimateAffinePartial2D(src_pts, dst_pts)
+        else:
+            M, mask = cv.findHomography(src_pts, dst_pts, cv.RANSAC, 4.0)
 
         h, w = templ.shape
         pts = np.float32([[0, 0], [0, h - 1], [w - 1, h - 1], [w - 1, 0]]).reshape(-1, 1, 2)
-        dst = cv.perspectiveTransform(pts, M)
-
+        if limited_transform:
+            dst = cv.transform(pts, M)
+        else:
+            dst = cv.perspectiveTransform(pts, M)
+        result.M = M
+        result.template_corners = dst.reshape(-1, 2)
         # img2 = cv.polylines(haystack, [np.int32(dst)], True, 0, 2, cv.LINE_AA)
-        return dst
-    else:
-        raise RuntimeError("Not enough matches are found - %d/%d" % (len(good), min_match))
-        matchesMask = None
+    return result
+
 
 
 def _find_homography_test(templ, haystack):
-    pts = find_homography(templ, haystack)
+    pts = match_feature(templ, haystack).template_corners
     img2 = cv.polylines(np.asarray(haystack.convert('L')), [np.int32(pts)], True, 0, 2, cv.LINE_AA)
     img = Image.fromarray(img2, 'L')
     print(pts)
