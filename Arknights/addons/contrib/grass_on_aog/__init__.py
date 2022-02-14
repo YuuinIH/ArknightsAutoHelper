@@ -3,9 +3,9 @@ import requests
 from datetime import datetime
 import json
 import os
-import config
+import app
 from automator import AddonBase
-from ...stage_navigator import StageNavigator
+from ...stage_navigator import StageNavigator, custom_stage
 from ...inventory import InventoryAddon
 
 desc = f"""
@@ -26,8 +26,8 @@ cache_key 控制缓存的频率, 默认每周读取一次库存, 如果需要手
 cache_key = '%Y--%V'    # cache by week
 
 
-aog_cache_file = os.path.join(config.cache_path, 'aog_cache.json')
-inventory_cache_file = os.path.join(config.cache_path, 'inventory_items_cache.json')
+aog_cache_file = app.cache_path.joinpath('aog_cache.json')
+inventory_cache_file = app.cache_path.joinpath('inventory_items_cache.json')
 
 
 def get_items_from_aog_api():
@@ -64,13 +64,10 @@ def order_stage(item):
 
 
 class GrassAddOn(AddonBase):
-
-    def on_attach(self) -> None:
-        self.addon(StageNavigator).register_custom_stage('grass', self.run, ignore_count=True, title='一键长草', description='检查库存中最少的蓝材料, 然后去 aog 上推荐的地图刷材料')
-
+    @custom_stage('grass', ignore_count=True, title='一键长草', description='检查库存中最少的蓝材料, 然后去 aog 上推荐的地图刷材料')
     def run(self, argv):
-        exclude_names = config.get('addons/grass_on_aog/exclude_names', ['固源岩组'])
-        self.logger.info('不刷以下材料:', exclude_names)
+        exclude_names = app.config.grass_on_aog.exclude
+        self.logger.info('不刷以下材料: %r', exclude_names)
         self.logger.info('加载库存信息...')
         aog_cache = load_aog_cache()
         my_items = self.load_inventory()
@@ -94,7 +91,7 @@ class GrassAddOn(AddonBase):
                 # print(t3_item)
                 stage_info = order_stage(t3_item)
                 stage = stage_info['code']
-                self.logger.info('aog stage:', stage)
+                self.logger.info('aog stage: %s', stage)
                 break
         self.addon(StageNavigator).navigate_and_combat(stage, 1000)
 

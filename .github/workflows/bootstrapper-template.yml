@@ -1,0 +1,52 @@
+name: 'bootstrapper package: template'
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ master ]
+    paths:
+      - 'custom_record'
+
+jobs:
+  build-win-amd64:
+    runs-on: windows-latest
+    steps:
+    - uses: actions/checkout@v2
+      with:
+        fetch-depth: 0
+    - name: Set up Python 3.9 amd64
+      uses: actions/setup-python@v2
+      with:
+        python-version: 3.9
+        architecture: x64
+    - name: Make package
+      shell: cmd
+      run: |
+        set PYTHONENCODING=utf-8
+        set PYTHONLEGACYWINDOWSSTDIO=utf-8
+        set PYTHONUTF8=1
+        python packaging/package2.py template
+    - name: Upload artifact
+      uses: actions/upload-artifact@v2.1.4
+      with:
+        name: template-nested-zip
+        path: build/template.zip
+    - name: delete old release
+      shell: cmd
+      run: |
+        git fetch --tags
+        hub release delete bootstrapper-package-template
+        git push --delete origin bootstrapper-package-template
+        call;
+    - name: prerelease
+      uses: "softprops/action-gh-release@v1"
+      with:
+        token: "${{ secrets.GITHUB_TOKEN }}"
+        name: "Bootstrapper Package: template"
+        tag_name: "bootstrapper-package-template"
+        prerelease: true
+        body: |
+          This release provides a package for [bootstrapper](https://github.com/ninthDevilHAUNSTER/ArknightsAutoHelper/releases/tag/bootstrapper-release) and isnot meant to be used directly.
+
+        files: |
+          build/template.zip

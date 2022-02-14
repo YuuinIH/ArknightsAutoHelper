@@ -2,22 +2,19 @@ import os
 import json
 import math
 
-import config
+import app
 from penguin_stats import arkplanner
-from automator import AddonBase
-from ..stage_navigator import StageNavigator
+from automator import AddonBase, cli_command
+from ..stage_navigator import StageNavigator, custom_stage
 from ..inventory import InventoryAddon
 
-record_path = os.path.join(config.CONFIG_PATH, 'record.json')
+record_path = app.config_path.joinpath('record.json')
 
 class PlannerAddOn(AddonBase):
-    def on_attach(self) -> None:
-        self.register_cli_command('arkplanner', self.cli_arkplanner, self.cli_arkplanner.__doc__)
-        self.addon(StageNavigator).register_custom_stage('plan', self.run_plan, ignore_count=True, title='执行刷图计划', description='使用 arkplannar 命令创建刷图计划。执行过程会自动更新计划进度。')
-
+    @cli_command('plan')
     def cli_arkplanner(self, argv):
         """
-        arkplannar
+        arkplanner
         输入材料需求创建刷图计划。使用 auto plan 命令执行刷图计划。
         """
         cache_time = arkplanner.get_cache_time()
@@ -46,7 +43,7 @@ class PlannerAddOn(AddonBase):
         c = input('是否获取当前库存材料数量(y,N):')
         if c.lower() == 'y':
             owned = self.addon(InventoryAddon).get_inventory_items()
-        calc_mode = config.get('plan/calc_mode', 'online')
+        calc_mode = app.config.plan.calc_mode
         print('正在获取刷图计划...')
         if calc_mode == 'online':
             plan = arkplanner.get_plan(required, owned)
@@ -83,8 +80,9 @@ class PlannerAddOn(AddonBase):
             json.dump(save_data, f, indent=4, sort_keys=True)
         print('刷图计划已保存至: config/plan.json')
 
+    @custom_stage('plan', ignore_count=True, title='执行刷图计划', description='使用 arkplanner 命令创建刷图计划。执行过程会自动更新计划进度。')
     def run_plan(self, count):
-        if not os.path.exists(record_path):
+        if not record_path.exists():
             self.logger.error('未能检测到刷图计划文件.')
             return
         with open(record_path, 'r') as f:

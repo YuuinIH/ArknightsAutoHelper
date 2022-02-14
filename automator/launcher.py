@@ -4,16 +4,16 @@ if TYPE_CHECKING:
     from typing import Union
     from automator import BaseAutomator
 del TYPE_CHECKING
-import os
 import sys
+import os
 import time
 
-import config
+import app
 
 from .fancycli import fancywait
 from .fancycli.platform import isatty
 
-config.enable_logging()
+app.init()
 
 helper: BaseAutomator = None
 prompt_prefix = 'akhelper'
@@ -155,9 +155,15 @@ def _ensure_device():
     device.ensure_alive()
 
 
-def command_internal(argv: Union[str, list[str]]):
+def command_internal(cmd: Union[str, list[str]]):
+    if isinstance(cmd, str):
+        import shlex
+        argv = shlex.split(cmd)
+    else:
+        argv = cmd
     if len(argv) == 0 or argv[0] == '?' or argv[0] == 'help':
-        print(' '.join(x[0] for x in interactive_cmds))
+        # print(' '.join(x[0] for x in interactive_cmds))
+        helpcmds(interactive_cmds)
         return 0
     cmd = match_cmd(argv[0], interactive_cmds)
     if cmd is not None:
@@ -175,13 +181,8 @@ raise_on_error: bool = True
 
 
 def command(cmd: Union[str, list[str]]):
-    if isinstance(cmd, str):
-        import shlex
-        argv = shlex.split(cmd)
-    else:
-        argv = cmd
-    errorlevel = command_internal(argv)
-    if errorlevel != 0 and raise_on_error:
+    errorlevel = command_internal(cmd)
+    if errorlevel is not None and errorlevel != 0 and raise_on_error:
         raise RuntimeError(errorlevel)
     return errorlevel
 
@@ -210,7 +211,7 @@ def interactive(argv):
             import readline
     except ImportError:
         pass
-    if instance_id := config.get_instance_id():
+    if instance_id := app.get_instance_id():
         title = f"{prompt_prefix}-{instance_id}"
     else:
         title = prompt_prefix
@@ -256,6 +257,19 @@ def help(argv):
     helpcmds(global_cmds)
 
 
+def debug(argv):
+    import IPython
+    from IPython.terminal.embed import InteractiveShellEmbed
+    old_instance = InteractiveShellEmbed.instance
+    def hook_instance(*args, **kwargs):
+        instance = old_instance(*args, **kwargs)
+        instance.register_magic_function(command_internal, magic_kind='line', magic_name='akhelper')
+        return instance
+    InteractiveShellEmbed.instance = hook_instance
+    IPython.embed(banner1='use "%akhelper command" to access akhelper commands', colors='neutral')
+    InteractiveShellEmbed.instance = old_instance
+
+
 def exit(argv):
     sys.exit()
 
@@ -279,8 +293,19 @@ def _configure(prompt, helper_class):
     global prompt_prefix, helper, context
     prompt_prefix = prompt
     helper, context = _create_helper(helper_class)
-    global_cmds.extend([*helper._cli_commands.values(), ('interactive', interactive, interactive.__doc__), ('help', help, help.__doc__)])
-    interactive_cmds.extend([('connect', connect, connect.__doc__), *helper._cli_commands.values(), ('exit', exit, '')])
+    from .addon import _cli_registry
+    addon_cmds = []
+    for name, record in _cli_registry.items():
+        def capture_value(owner, func_name):
+            def cli_handler(argv):
+                return getattr(helper.addon(owner), func_name)(argv)
+            return cli_handler
+        addon_cmds.append((name, capture_value(record.owner, record.attr), record.get_help(helper)))
+    global_cmds.extend([*addon_cmds, ('interactive', interactive, interactive.__doc__), ('help', help, help.__doc__)])
+    interactive_cmds.extend([('connect', connect, connect.__doc__), *addon_cmds, ('exit', exit, '')])
+    if app.config.debug:
+        global_cmds.append(('debug', debug, ''))
+        interactive_cmds.append(('debug', debug, ''))
 
 
 def main(argv):

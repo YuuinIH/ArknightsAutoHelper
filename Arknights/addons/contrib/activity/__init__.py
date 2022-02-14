@@ -1,16 +1,16 @@
 import os
 import time
 
-import config
+import app
 from automator import AddonBase
 from ..common_cache import load_game_data
 from penguin_stats import arkplanner
 
-from ...stage_navigator import StageNavigator
+from ...stage_navigator import StageNavigator, navigator
 from ...record import RecordAddon
 
-stage_cache_file = os.path.join(config.cache_path, 'stage_cache.json')
-activities_cache_file = os.path.join(config.cache_path, 'activities_cache.json')
+stage_cache_file = app.cache_path.joinpath('stage_cache.json')
+activities_cache_file = app.cache_path.joinpath('activities_cache.json')
 
 
 def get_stage_map(force_update=False):
@@ -84,13 +84,11 @@ def check_activity_available(zone_id):
 
 
 class ActivityAddOn(AddonBase):
-    def on_attach(self):
-        self.addon(StageNavigator).register_navigator(
-            self.__class__.__name__,
-            lambda stage: self.run(stage, query_only=True),
-            lambda stage: self.run(stage, query_only=False)
-        )
-
+    @navigator
+    def nav(self, stage):
+        return self.run(stage, query_only=True)
+    
+    @nav.navigate
     def run(self, target_stage_code, query_only=False):
         target_stage_code = target_stage_code.upper()
         try:
